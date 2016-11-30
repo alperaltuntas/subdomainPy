@@ -1,7 +1,7 @@
 # CSM: Python Module for the Conventional Subdomain Modeling Approach
-#   Copyright (C) 2017
+#   Copyright (C) 2017 
+#   Computational Modeling Group, NCSU <http://www4.ncsu.edu/~jwb/>
 #   Alper Altuntas <alperaltuntas@gmail.com>
-#   Computational Modeling Group <http://www4.ncsu.edu/~jwb/>
 
 import os
 import math
@@ -21,12 +21,18 @@ class Domain(object,):
             domainDir = domainDir+'/'
         self.dir = domainDir
 
-    # Returns true if the domain is partitioned (i.e., belongs to a parallel run)
-    def partitioned(self):
+    # Returns True if the domain is partitioned (i.e., belongs to a parallel run)
+    def isPartitioned(self):
         if os.path.exists(self.dir+'fort.80') and os.path.exists(self.dir+'PE0000'):
             return True
         return False
 
+    # Returns True if the domain is for a coupled ADCIRC+SWAN run
+    def isCoupledAdcircSwan(self):
+        if os.path.exists(self.dir+"fort.26") or os.path.exists(self.dir+"swaninit"):
+            return True
+        return False
+    
     # Opens and returns an input file with a given name at self.dir
     def openInputFile(self,fileName):
         try:
@@ -966,7 +972,4 @@ class Domain(object,):
 
 
      '''
-
-
-
 
