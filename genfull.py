@@ -202,7 +202,7 @@ def modifyFort26(full,subdomains):
                     new26.write("POINTS 'P1' FILE 'swanStations.txt' \n")
                     new26.write("$\n")
                     new26.write("$ Record SWAN output for Subdomain Boundary Conditions: \n")
-                    new26.write( "SPEC 'P1' SPEC2D ABS 'specout' OUTPUT "+\
+                    new26.write( "SPEC 'P1' SPEC2D ABS 'spec2d.63' OUTPUT "+\
                                 tbeg+" "+delt+" "+unit+"\n$\n")
 
                     passed_block_g = True
