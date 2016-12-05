@@ -1049,7 +1049,7 @@ class SubShape:
             self.yaxis = self.w/2.
 
 # Encapsulates spec file data:
-class specFile:
+class SpecFile:
     def __init__(self,fileObj):
         self.fileObj = fileObj
         self.headerLines = []
