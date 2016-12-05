@@ -5,6 +5,7 @@
 
 import os
 import math
+import numpy 
 
 # csm.Domain:
 
@@ -16,7 +17,8 @@ import math
 class Domain(object,):
 
     def __init__(self,domainDir):
-        # Domain directory:
+        # Format domain directory:
+        domainDir = domainDir.strip()
         if (not domainDir[-1] == '/'):
             domainDir = domainDir+'/'
         self.dir = domainDir
@@ -49,7 +51,7 @@ class Domain(object,):
         fort14 = self.openInputFile("fort.14")
 
         # Read the header:
-        line = fort14.readline()
+	self.f14header = fort14.readline()
         
         # Number of nodes and elements: (fort.14 parameters)
         line = fort14.readline()
@@ -972,4 +974,79 @@ class Domain(object,):
 
 
      '''
+
+# Encapsulates the parameters in a shape file 
+class SubShape:
+    def __init__(self,subDir):
+
+        # Format the subdomain directory
+        subDir = subDir.strip()
+        if (not subDir[-1] == '/'):
+            subDir = subDir+'/'
+        self.path = subDir
+        self.typ = None
+        self.file = None
+        self.readFile()
+
+    def readFile(self):
+
+        # Determine the directory of the file:
+        if os.path.exists(self.path+"shape.14"):
+            self.file = open(self.path+"shape.14")
+        elif os.path.exists(self.path+"shape.c14"):
+            self.file = open(self.path+"shape.c14")
+            self.typ = 'c'
+        elif os.path.exists(self.path+"shape.e14"):
+            self.file = open(self.path+"shape.e14")
+            self.typ = 'e'
+
+        # Check if a shape file is found
+        if not self.file:
+            print "\nERROR: Couldn't find a shape file at subdomain directory:", self.path
+            print "       (Valid shape file names: shape.14, shape.c14, shape.e14)"
+            exit()
+
+        # Determine the type of the subdomain shape (circle or ellipse):
+        if not self.typ:
+
+            nlines = 0
+            for line in self.file:
+                nlines = nlines+1
+
+            if nlines==2:
+                self.typ = 'c'
+            elif nlines==3:
+                self.typ = 'e'
+            else:
+                print "\nERROR: Invalid number of lines in shape file at", self.path+"shape.14"
+                exit()
+
+        # A circular subdomain:
+        if self.typ == 'c':
+            line = self.file.readline()
+            self.x = float(line.split()[0])
+            self.y = float(line.split()[1])
+            line = self.file.readline()
+            self.r = float(line.split()[0])
+        # An elliptical subdomain:
+        if self.typ == 'e':
+            line = self.file.readline()
+            self.x1 = float(line.split()[0])
+            self.y1 = float(line.split()[1])
+            line = self.file.readline()
+            self.x2 = float(line.split()[0])
+            self.y2 = float(line.split()[1])
+            line = self.file.readline()
+            self.w = float(line.split()[0])
+    
+            self.c = [ (self.x1+self.x2)/2., (self.y1+self.y2)/2.] # center of the ellipse
+            self.d = ( (self.x1-self.x2)**2 + (self.y1-self.y2)**2)**(0.5) # distance
+            self.theta = math.atan( (self.y1-self.y2)/(self.x1-self.x2) ) # theta to positive x axis
+            self.sin = math.sin(-theta)
+            self.cos = math.cos(-theta)
+
+            self.xaxis = ((0.5*self.d)**2 + (0.5*self.w)**2)**(0.5)
+            self.yaxis = self.w/2.
+
+
 
