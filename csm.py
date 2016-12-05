@@ -1049,4 +1049,39 @@ class SubShape:
             self.yaxis = self.w/2.
 
 
+# Encapsulates spec file data:
+class specFile:
+    def __init__(self,fileObj):
+            self.fileObj = fileObj
+            self.headerLines = []
+            self.lines = []
+
+        def close(self):
+            self.fileObj.close()
+
+        def readHeaders(self):
+            for i in range(6):
+                self.headerLines.append(self.fileObj.readline())
+
+            # read the list of locations:
+            self.headerLines.append(self.fileObj.readline())
+            nloc = int(self.headerLines[-1].split()[0])
+            for i in range(nloc):
+                self.fileObj.readline()
+
+            # read the rest of lines until spectral data
+            self.headerLines.append(self.fileObj.readline()) #afreq header
+            self.headerLines.append(self.fileObj.readline()) #nfreq
+            nfreq = int(self.headerLines[-1].split()[0])
+            for i in range(nfreq):
+                self.headerLines.append(self.fileObj.readline())
+            self.headerLines.append(self.fileObj.readline()) #cdir header
+            self.headerLines.append(self.fileObj.readline()) #ndir
+            ndir = int(self.headerLines[-1].split()[0])
+            for i in range(ndir):
+                self.headerLines.append(self.fileObj.readline())
+            for i in range(5):
+                self.headerLines.append(self.fileObj.readline())
+
+
 
