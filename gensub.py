@@ -1,480 +1,358 @@
+#CSM: Python Module for the Conventional Subdomain Modeling Approach
+#   Copyright (C) 2017 
+#   Computational Modeling Group, NCSU <http://www4.ncsu.edu/~jwb/>
+#   Alper Altuntas <alperaltuntas@gmail.com>
 
-# NCSU Subdomain Modeling
-# --------------------------------
-# Alper Altuntas - aaltunt@ncsu.edu
-# (c) 2014 
-
-
-# gensub.py
-# ------------------------------------------------------------------------
-# This script carves out a subdomain grid from a full domain grid.
-# 	Required input files: full domain fort.14 (and fort.13) 
-# 	Output files: subdomain input files fort.015, fort.14 (and fort.13)
-
-
-#!/usr/bin/python
+import os
 import sys
-import math
 import numpy
+from shutil import copyfile
+from csm import Domain, SubShape
 
-class node:
-	def __init__(self, n_num, x_coord, y_coord, depth):
-		self.n = 0
-		self.x = x_coord
-		self.y = y_coord
-		self.d = depth
-		self.o_n = n_num
-		self.b = 0
-		self.r = 0
-		self.me = 99999
-		self.i = -1
+# gensub.py:
+# Extracts a subdomain from a given full domain. Generates the following input
+# files for the subdomain:
+#   - fort.015  (required)
+#   - fort.13   (optional)
+#   - fort.14   (required)
+#   - fort.26   (optional)
 
-	def show(self):
-		print (str(self.n) + " " + str(self.x) + " " + str(self.y) + " " + str(self.d))
+# Determines the nodes of a full domain that fall within a subdomain with 
+# the given circular shape
+def trimNodesCircle(full,sub,shape):
+    sub.nodes = [None]
+    sub.subToFullNode = dict()
+    sub.fullToSubNode = dict()
+    for n in range(1,len(full.nodes)):
+        node = full.nodes[n]
+        if ( (shape.x-node[0])**2 + (shape.y-node[1])**2 < (shape.r)**2):
+            sub.subToFullNode[len(sub.nodes)] = n
+            sub.fullToSubNode[n] = len(sub.nodes)
+            sub.nodes.append(node)
+    
+# Determines the nodes of a full domain that fall within a subdomain with 
+# the given elliptical shape
+def trimNodesEllipse(full,sub,shape):
+    sub.nodes = [None]
+    sub.subToFullNode = dict()
+    sub.fullToSubNode = dict()
+    for n in range(1,len(full.nodes)):
+        node = full.nodes[n]
+        #transform Global Coordinates to local coordinates
+        X = node[0] - shape.c[0] 
+        Y = node[1] - shape.c[1] 
+        x = shape.cos*X - shape.sin*Y
+        y = shape.sin*X + shape.cos*Y
 
-	def fort(self):
-		#return (str(self.x) + "\t" + str(self.y) + "\t" + str(self.d))
-		return ( "\t%d\t% 0.12f\t% 0.12f\t% 0.12f\n" % (self.n, self.x, self.y, self.d) )
+        if(x**2/shape.xaxis**2 + y**2/shape.yaxis**2 < 1):
+            sub.subToFullNode[len(sub.nodes)] = n
+            sub.fullToSubNode[n] = len(sub.nodes)
+            sub.nodes.append(node)
 
-	def calcR(self, mx, my):
-		self.r = (math.atan2(self.y - my, self.x - mx))
+# Determines the elements of a full domain that fall within a subdomain
+def trimElements(full,sub):
 
-	def isDry(self):
-		#if self.me == -99999:
-		if self.d < 0:
-			return int(1)
-		else:
-			return int(0)
+    # Initialize subdomain properties:
+    sub.elements = [None]
+    sub.neta = 0            # total number of sub. boundary nodes
+    sub.nbdvSet = set()        # set of sub. boundary nodes
+    sub.isSubBoundary = [False]*(len(sub.nodes)+1) # True if i.th node is sub. boundary 
+    
+    # Mapping from subdomain node numbering to full domain node numbering
+    sub.subToFullEle = dict()
 
-class element:
-	def __init__(self, ele_n, node_1, node_2, node_3):
-		self.n = ele_n
-		self.o_n = ele_n
-		self.n1 = node_1
-		self.n2 = node_2
-		self.n3 = node_3
+    # Loop through full domain elements and determine the ones inside the subdomain.
+    # Also, determine the list of subdomain boundary nodes
+    for e in range(1,len(full.elements)):
+        ele = full.elements[e]
+        
+        # incSubNode[i] is True if i.th node of element e is in the subdomain
+        incSubNode = [False]*3
+        nSubNodes = 0
+        for i in range(3):
+            incSubNode[i] = ele[i] in sub.fullToSubNode    
+            nSubNodes = nSubNodes + incSubNode[i]
 
-	def show(self):
-		print(str(self.n) + " " + str(self.n1.n) + " " + str(self.n2.n) + " " + str(self.n3.n))
+        if nSubNodes==3:
+            # The element is inside the subdomain:
+            sub.subToFullEle[len(sub.elements)] = e
+            sub.elements.append([sub.fullToSubNode[ele[0]], \
+                                 sub.fullToSubNode[ele[1]], \
+                                 sub.fullToSubNode[ele[2]]])
 
-	def fort(self, n):
-		return (str(n) + "\t3\t" + str(self.n1.n) + "\t" + str(self.n2.n) + "\t" + str(self.n3.n))
+        elif not nSubNodes==0:
+            # The element is outside the subdomain, but adjacent to subdomain.
+            # Determine the boundary nodes:
+            for i in range(3):
+                if incSubNode[i]: 
+                    sub.nbdvSet.add(sub.fullToSubNode[ele[i]])
+                    sub.isSubBoundary[sub.fullToSubNode[ele[i]]] = True
 
-class boundary:
-	def __init__(self):
-		self.p = []
-		self.n = -1
+# Re-orders the list of boundary nodes of a subdomain
+def orderBoundaryNodes(sub):
 
-	def addPoint(self, x, y):
-		self.p.append([x,y])
+    # Determine the neighbors and elements of subdomain boundary nodes:
+    eles = [None]*(len(sub.nodes)+1)        # set of elements for each node
+    neighbors = [None]*(len(sub.nodes)+1)   # set of neighbors for each node
+    for i in range(1,len(sub.nodes)+1):
+        eles[i] = set()
+        neighbors[i] = set()
+    for e in range(1,len(sub.elements)):
+        for i in range(3):
+            node = sub.elements[e][i]
+            if sub.isSubBoundary[node]:
+                eles[node].add(e)
+                neighbors[node].add(sub.elements[e][(i+1)%3])
+                neighbors[node].add(sub.elements[e][(i+2)%3])
 
-	def contains(self, x, y):
-		if len(self.p) < 3:
-			print ("Error: less than 3 vertices; no polygon exists")
-			return 0
-		else:
-			print ""	
-			
-	#returns an extreme value for the boundary class
-	#index = 0: return x; index = 1: return y
-	#m < 0: return minimum; m > 0: return maximum
-	def exValue(self, index, m):
-		a = self.p[0][index]
-		for i in range(1, len(self.p)):
-			if self.p[i][index]*m > a*m:
-				a = self.p[i][index]
-		return a
+    # Initialize the list of ordered subdomain boundary nodes:
+    sub.nbdv = []
 
-	def getNext(self):
-		self.n = self.n + 1
-		return self.p[self.n][0], self.p[self.n][1]
+    # True if a node is added to the reordered list of boundary nodes
+    isAdded = [False]*(len(sub.nodes)+1)
 
-	def reset(self):
-		self.n = -1
+    # Adds a given node to the ordered list of subdomain boundary nodes and 
+    # removes it from the set of (unordered) subdomain boundary nodes 
+    def addBoundaryNode(n):
+        sub.nbdv.append(n)
+        isAdded[n] = True
+        sub.nbdvSet.remove(n)    
 
-	def show(self):
-		for i in range(0, len(self.p)):
-			print (str(self.p[i][0]) + " " + str(self.p[i][1]))
+    # Re-order:
+    addBoundaryNode(min(sub.nbdvSet))
+    while (len(sub.nbdvSet)>0):
+        progressed = False
+        for neig in neighbors[sub.nbdv[-1]]:
+            if (sub.isSubBoundary[neig] and not isAdded[neig]):
+                nCommonEles = len(eles[sub.nbdv[-1]].intersection(eles[neig]))
+                if nCommonEles==1:
+                    addBoundaryNode(neig)
+                    progressed = True
+                    break
+        if not progressed: 
+            print "ERROR: Encountered error while reordering the list of boundary nodes.\n"
+            exit()
+            break
 
-class helper:
-	def __init__(self, n, i):
-		self.n = n
-		self.o = -1
-		self.i = i
+    # Set the number of boundary nodes:
+    sub.neta = len(sub.nbdv) 
 
-def orderBoundaryNodes(n):
-	nodes = []
-	helpers = []
 
-	for i in range(0, len(n)):
-		if n[i].b == 1:
-			nodes.append(n[i])
-			#helpers.append(helper(n[i].n, i))
+def writeFort14(sub,header):
+    print "\t Writing fort.14 at",sub.dir
+    
+    fort14 = open(sub.dir+"fort.14",'w')
+   
+    # Write header 
+    fort14.write(header)
+    fort14.write(str(len(sub.elements)-1) + " " + str(len(sub.nodes)-1)+"\n")
+        
+    # Write the list of nodes
+    for n in range(1,len(sub.nodes)):
+        node = sub.nodes[n]
+        fort14.write("\t%d\t% 0.12f\t% 0.12f\t% 0.12f\n" \
+                        %(n,node[0],node[1],node[2]))
 
-	sx = 0
-	sy = 0
-	for i in range(0, len(nodes)):
-		sx += nodes[i].x
-		sy += nodes[i].y
+    # Write the list of elements:
+    for e in range(1,len(sub.elements)):
+        ele = sub.elements[e]
+        fort14.write(str(e) + "\t3\t" + str(ele[0]) +"\t"+ str(ele[1]) +"\t"+ str(ele[2]) +"\n")
 
-	mx = sx / len(nodes)
-	my = sy / len(nodes)
 
-	b = []
-	for i in range(0, len(nodes)):
-		nodes[i].calcR(mx, my)
-		b.append(nodes[i])
-	b.sort(key=getR)
-
-	for i in range(0, len(nodes)):
-		helpers.append(helper(b[i].n, i))
-	helpers.sort(key=getN)
-
-	#segs = makeSegments(b, helpers)
-	#return b, segs
-	return b
-
-def getR(node):
-	return node.r
-
-def getN(helper):
-	return helper.n
-
-def renumberNodes(sn):
-	for i in range(0, len(sn)):
-		sn[i].n = i+1
-	return sn
-
-def trimNodesPolygon(n, b):
-	s = []
-	for i in range(0, len(n)):
-		if (b.contains(n[i].x, n[i].y)):
-			s.append(n[i])
-
-	s = renumberNodes(s)
-	return s
-
-def trimNodesCircle(n, f_n):
-	s = []
-	a = open("shape.c14", "r")
-	t = a.readline().split()
-	xb = float(t[0])
-	yb = float(t[1])
-	r = float(a.readline())
-	for i in range(0, len(n)):
-		if ((xb-n[i].x)**2 + (yb-n[i].y)**2 < r**2):
-			s.append(n[i])
-			f_n[i] = 1
-
-	s = renumberNodes(s)
-	a.close()
-	return s, f_n
-
-def trimNodesEllipse(n,f_n):
-	s = []
-	a = open("shape.e14","r")
-	point1 = a.readline().split()
-	p1 = [float(point1[0]), float(point1[1])]
-	point2 = a.readline().split()
-	p2 = [float(point2[0]), float(point2[1])]
-	w = float(a.readline())
-	Xmin = min(p1[0], p2[0])
-	Xmax = max(p1[0], p2[0])
-	Ymin = min(p1[1], p2[1])
-	Ymax = max(p1[1], p2[1])
-
-	c = [(p1[0] + p2[0])/2, (p1[1] + p2[1])/2]		#center point
-	d = ((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)**(0.5)	#distance between points
-	theta = math.atan((p1[1] - p2[1])/(p1[0] - p2[0])) 	#theta to positive Xaxis
-	sin = math.sin(-theta)
-	cos = math.cos(-theta)
-	
-	xaxis = ((0.5*d)**2 + (0.5*w)**2)**(0.5) 		#xaxis will be the axis the points lie on
-	yaxis = w/2
-	
-	for i in range(0, len(n)):
-		#transform Global Coordinates to local coordinates
-		X = n[i].x - c[0]
-		Y = n[i].y - c[1]
-		x = cos*X - sin*Y
-		y = sin*X + cos*Y
-
-		if(x**2/xaxis**2 + y**2/yaxis**2 < 1):
-			s.append(n[i])
-			f_n[i] = 1
-	
-	s = renumberNodes(s)
-	a.close()
-	return s, f_n
-
-def trimNodesGiven(n, n_f, f_n):
-	s = []
-	sr = []
-	sb = []
-	a = open(n_f, "r")
-	nn = int(a.readline().split()[0])
-	for i in range(0, nn):
-		t = int(a.readline().split()[0])
-		sr.append(t)
-		f_n[t-1] = 1
-	bb = int(a.readline().split()[0])
-	for i in range(0, bb):
-		t = int(a.readline().split()[0])
-		sb.append(t)
-	a.close()
-
-	for i in range(0, len(n)):
-		if n[i].o_n in sr:
-			s.append(n[i])
-	if bb > 0:
-		find_b = 0
-		for i in range(0, len(s)):
-			if s[i].o_n in sb:
-				print "found", s[i].o_n, s[i].n
-				s[i].b = 1
-	else:
-		find_b = 1
-
-	s = renumberNodes(s)
-	return s, find_b, f_n
-
-def trimElements(e, s, find_b, f_n):
-	s1 = []
-	for i in range(0, len(s)):
-		s1.append(s[i].o_n)
-
-	es = []
-	if find_b == 1:
-		for i in range(0, len(e)):
-			#print "element", i, e[i].n
-			n1 = f_n[e[i].n1.o_n - 1]
-			n2 = f_n[e[i].n2.o_n - 1]
-			n3 = f_n[e[i].n3.o_n - 1]
-			#print i+1,n1,n2,n3,e[i].n1.o_n, e[i].n2.o_n, e[i].n3.o_n,"\t",(n1+n2+n3)
-
-			if (n1 + n2 + n3) == 3:
-				es.append(e[i])
-				#print "element added", i+1
-			else:
-				e[i].n1.b = n1
-				e[i].n2.b = n2
-				e[i].n3.b = n3
-	else:
-		for i in range(0, len(e)):
-			if (e[i].n1.o_n in s1) and (e[i].n2.o_n in s1) and (e[i].n3.o_n in s1):
-				es.append(e[i])
-
-	return es
-
-def fillNodes(input_fort):
-	l = []
-	e = []
-
-	inf = open(input_fort, "r")
-	title = inf.readline().split("\n")[0]
-	
-	t = inf.readline().split("\n")[0]
-	ele_n = int(t.split()[0])
-	node_n = int(t.split()[1])
-
-	full_n = numpy.array([0 for i in range(0, node_n)])
-
-	for i in range(0, node_n):
-		rl = inf.readline()
-		l.append(node(int(rl.split()[0]), float(rl.split()[1]), float(rl.split()[2]), float(rl.split()[3])))
-	
-	for i in range(0, ele_n):
-		rl = inf.readline()
-		#if (int(rl.split()[2])-1 < len(l) and int(rl.split()[3])-1 < len(l) and int(rl.split()[4])-1 < len(l)):
-		e.append(element(int(rl.split()[0]), l[int(rl.split()[2])-1], l[int(rl.split()[3])-1], l[int(rl.split()[4])-1]))
-
-	inf.close()
-
-	return l, e, title, full_n
-
-def writeFort(nodes, eles, title, out_file):
-	o = open(out_file, "w")
-	o.write (title + "\n")
-	o.write (str(len(eles)) + " " + str(len(nodes)) + "\n")
-	for i in range(0, len(nodes)):
-		#o.write (str(i+1) + "\t" + nodes[i].fort() + "\n")
-		o.write(nodes[i].fort())
-	for i in range(0, len(eles)):
-		o.write (eles[i].fort(i+1) + "\n")
-
-	#b, s = orderBoundaryNodes(nodes)
-	b = orderBoundaryNodes(nodes)
-	a = open("bv.nodes", "w")
-	
-	o.write("1\t!no. of open boundary segments\n")
-	o.write(str(len(b) + 1) + "\t!no. of open boundary nodes\n")
-	o.write(str(len(b) + 1) + "\n")
-	for i in range(0, len(b)):
-		o.write(str(b[i].n) + "\n")
-		a.write(str(b[i].n) + " " + str(b[i].r) + " " + str(b[i].x) + " " + str(b[i].y) + " " + str(b[i].me) +  "\n")
-	o.write (str(b[0].n) + "\n") #must start and end on the same node
-	o.write("0\t!no. of land boundary segments\n0\t!no. of land boundary nodes")
-	#print len(s)
-	#printSegments(s, o)
-	a.close()
-	o.close()
+    # Write the boundary list:
+    orderBoundaryNodes(sub)        
+    fort14.write("1\t!no. of subdomain boundary segments\n")
+    fort14.write(str(sub.neta+1) + "\t!no. of subdomain boundary nodes\n")
+    fort14.write(str(sub.neta+1) + "\n")
+    for bn in sub.nbdv:
+        fort14.write(str(bn)+"\n")
+    fort14.write(str(sub.nbdv[0])+"\n")
+    fort14.write("0\t!no. of land boundary segments\n0\t!no. of land boundary nodes")
+    fort14.close()
+       
 
 def writeNewToOld(nodes, elements, output_name, output_name2, num_n, num_e):
-	a = open(output_name, "w")
-	a.write("new old " + str(num_n) + "\n")
-	for i in range(0, len(nodes)):
-		a.write(str(nodes[i].n) + " " + str(nodes[i].o_n) + "\n")
-	a.close()		
-	
-	a = open(output_name2, "w")
-	a.write("new old " + str(num_e) + "\n")
-	for i in range(0, len(elements)):
-		a.write(str(i+1) + " " + str(elements[i].o_n) + "\n")
-	a.close()
+    a = open(output_name, "w")
+    a.write("new old " + str(num_n) + "\n")
+    for i in range(0, len(nodes)):
+        a.write(str(nodes[i].n) + " " + str(nodes[i].o_n) + "\n")
+    a.close()
 
-def write993(nodes, of):
-	a = open(of, "w")
-	#a.write("1\n1\n0\n0\n0\n")
-	a.write("1\t!elevation\n")
-	a.write("1\t!velocity\n")
-	a.write("0\t!gwce lv\n")
-	a.write("0\t!flux\n")
-	a.write("0\t!momentum lv\n")
-	a.write(str(len(nodes)) + "\n")
-	for i in range(0, len(nodes)):
-		a.write(str(i+1) + "\n")
-	a.close()
+    a = open(output_name2, "w")
+    a.write("new old " + str(num_e) + "\n")
+    for i in range(0, len(elements)):
+        a.write(str(i+1) + " " + str(elements[i].o_n) + "\n")
+    a.close()
 
-def main(input_fort, p_or_c, out_f):
-	#p_or_c = 0 for polygon, 1 for circle
-	print (" \n Generating input files for the subdomain grid...")
-	nodes, eles, title, full_n = fillNodes(input_fort)
-	if int(p_or_c) == 0:
-		sub_nodes, full_n = trimNodesEllipse(nodes, full_n)
-		find_b = 1
-	elif int(p_or_c) == 1:
-		sub_nodes, full_n = trimNodesCircle(nodes, full_n)
-		find_b = 1
-	elif int(p_or_c) == 2:
-		sub_nodes, find_b, full_n = trimNodesGiven(nodes, "trim.nodes", full_n)
-	else:
-		print ("invalid shape file input")
+def extractFort14(full,sub,shape):
+    print "\nExtracting fort.14:"
 
-	sub_eles = trimElements(eles, sub_nodes, find_b, full_n)
-	writeFort(sub_nodes, sub_eles, title, out_f)
-	writeNewToOld(sub_nodes, sub_eles, "py.140", "py.141", len(full_n), len(eles))
+    full.readFort14()
 
+    # initialize nodal mapping containers
+    sub.subToFullNode = None
+    sub.fullToSubNode = None
 
-        print ""
-	fort015 =  open("fort.015", 'w')
+    # Circular subdomain
+    if (shape.typ=='c'):
+        trimNodesCircle(full,sub,shape)
+    # Elliptical subdomain:
+    elif (shape.typ=='e'):
+        trimNodesEllipse(full,sub,shape)
+    else:
+        print "ERROR: invalid subdomain shape type."
+        exit()
 
-	#NOUTGS:
-	fort015.write( "0" + "\t!NOUTGS" + '\n' )
-	fort015.write( "0" + "\t!NSPOOLGS" + '\n' )
-	fort015.write( "1" + "\t!enforceBN" + '\n' )	# type-1 b.c. by default
-	fort015.write( "0" + "\t!ncbnr" + '\n' )
+    trimElements(full,sub)
+    writeFort14(sub,full.f14header)
 
+def extractFort13(full,sub):
+    print "Extracting fort.13:"
 
+    print "\t Reading fort.13 at", full.dir
+    full13 = open(full.dir+"fort.13")
+    print "\t Writing fort.13 at", sub.dir
+    sub13 = open(sub.dir+"fort.13","w")
 
-class node2:
-        def __init__(self, n, o):
-                self.n = n
-                self.o = o
+    # Read-write header:
+    sub13.write(full13.readline())
 
+    # Number of nodes:
+    full13.readline() # discard
+    sub13.write(str(len(sub.nodes)-1)+"\n")
 
-def main13(new_f14_file, old_f13_file, new_f13_file, newtoold_file):
-	print (" \n Generating input files for the subdomain grid...")
-        nto = open(newtoold_file, "r")
-        nto.readline() #discard
-        nodes = []
-        for line in nto:
-                nodes.append(node2(int(line.split()[0]), int(line.split()[1])))
-        nto.close()
+    # number of parameters:
+    nParams = int(full13.readline().split()[0])
+    sub13.write(str(nParams)+"\n")
 
-        of = open(old_f13_file, "r")
-        nf = open(new_f13_file, "w")
+    # Default parameter values:
+    for p in range(nParams):
+        for i in range(4):
+            sub13.write(full13.readline())
 
-        nf.write(of.readline()) #re-write title
-
-        of.readline() #discard number of nodes
-        nf.write(str(len(nodes)) + "\n")
-
-        n_params = int(of.readline())
-        nf.write(str(n_params) + "\n")
-
-        #write default parameter values
-        for i in range(0, n_params):
-                for j in range(0, 4):
-                        nf.write(of.readline())
+   
+    # Write non-default parameter values: 
+    for p in range(nParams):
+            
+        sub13.write(full13.readline()) # parameter name
+        nFullNodes = int(full13.readline().split()[0])
 
         lines = []
-        for i in range(0, n_params):
-                nf.write(of.readline()) #parameter name
-                n_thisp = int(of.readline())
-                count = 0
-                g = 0
-                lines = []
-                for j in range(0, n_thisp):
-                        ls = of.readline().split()
-                        if g < len(nodes):
-                                #if int(ls[0]) > nodes[g].o and g < len(nodes)-1:
-                        #               g += 1
+        snode = 1
+        def full(snode): return sub.subToFullNode[snode]
+        fnode_last = full(len(sub.nodes)-1)
 
-                                #if g < len(nodes) - 1:
-                                while (int(ls[0]) > nodes[g].o) and (g < len(nodes)-1):
-                                        g += 1
+        for f in range(nFullNodes):
 
-                                #print i, ls[0], nodes[g].o
-                                if int(ls[0]) == nodes[g].o:
-                                        lines.append([nodes[g].n, ls])
-                                        count += 1
-                                        g += 1
-                                elif int(ls[0]) > nodes[g].o:
-                                        g += 1
+            sline = full13.readline().split()
+            fnode = int(sline[0])
 
-                nf.write(str(count) + "\n")
-                #count = 0
-                #g = 0
-                for j in range(0, len(lines)):
-                        #                       if count < len(nodes):
-                        #       ls = line.split()
-                        #       if int(ls[0]) > nodes[g].o:
-                        #               g += 1
+            if (not fnode>fnode_last):
 
-                        #       if int(ls[0]) == nodes[g].o:
-                        #               nf.write(nodes[g].n + "\t")
-                        #               for k in range(1, len(ls)):
-                        #                       nf.write(ls[k] + "\t")
-                        #               nf.write("\n")
-                        nf.write(str(lines[j][0]) + "\t")
-                        for k in range(1, len(lines[j][1])):
-                                nf.write(lines[j][1][k] + "\t")
-                        nf.write("\n")
-
-        nf.close()
-        of.close()
+                while fnode > full(snode) and snode < len(sub.nodes)-1:
+                    snode += 1
+    
+                if fnode == full(snode):
+                    lines.append([snode,sline]) 
 
 
+        sub13.write(str(len(lines))+"\n")
+        for l in lines:
+            sub13.write(str(l[0])+"\t")
+            for i in range(1,len(l[1])):
+                sub13.write(l[1][i]+"\t")
+            sub13.write("\n")
+
+    sub13.close() 
+    full13.close() 
+    
+# Write subdomain control file of the subdomain
+def writeFort015(sub):
+    print "Generating fort.015 at ", sub.dir
+    fort015 =  open(sub.dir+"fort.015", 'w')
+    fort015.write( "0" + "\t!NOUTGS" + '\n' )
+    fort015.write( "0" + "\t!NSPOOLGS" + '\n' )
+    fort015.write( "1" + "\t!enforceBN" + '\n' )    # type-1 b.c. by default
+    fort015.write( "0" + "\t!ncbnr" + '\n' )    
+   
+
+# Writes nodal and elemental mapping files of the subdomain:
+def writeNewToOld(sub):
+    print "Generating nodal and elemental mapping files at ", sub.dir
+
+    py140 = open(sub.dir+"py.140","w")
+    py140.write("Nodal mapping from sub to full\n")
+    for i in range(1,len(sub.subToFullNode)+1):
+        py140.write(str(i)+" "+str(sub.subToFullNode[i])+"\n")
+    py140.close()
+        
+    py141 = open(sub.dir+"py.141","w")
+    py141.write("Elemental mapping from sub to full\n")
+    for i in range(1,len(sub.subToFullEle)+1):
+        py141.write(str(i)+" "+str(sub.subToFullEle[i])+"\n")
+    py141.close()
+    
+    
+
+def copySwanFiles(full,sub):
+    print "Copying SWAN input files to", sub.dir
+    copyfile(full.dir+"fort.26",sub.dir+"fort.26")    
+    copyfile(full.dir+"swaninit",sub.dir+"swaninit")    
+
+# Generate the input files of the subdomain
+def main(fullDir,subDir):
+
+    print ""
+    print '\033[95m'+'\033[1m'+"NCSU Subdomain Modeling for ADCIRC+SWAN"+'\033[0m'
+    print ""
+
+    print "Generating input files for the subdomain at", subDir
+
+    # Initialize the full and subdomains
+    full = Domain(fullDir)
+    sub = Domain(subDir)
+
+    # Read subdomain shape file:
+    shape = SubShape(sub.dir)
+         
+    # Extract fort.14:
+    if not os.path.exists(full.dir+"fort.14"):
+        print "ERROR: No fort.14 file exists at", full.dir
+        exit()
+    else:
+        extractFort14(full,sub,shape)  
+ 
+    # Extract fort.13:
+    if os.path.exists(full.dir+"fort.13"):
+        extractFort13(full,sub)
+
+    # Generate fort.015:
+    writeFort015(sub)
+    
+    # Generate py.140 and py.141
+    writeNewToOld(sub)
+
+    # Copy SWAN input files
+    if full.isCoupledAdcircSwan():
+        copySwanFiles(full,sub)
+
+    # The final log message:
+    print "\nSubdomain input files are now ready."
+    print '\033[91m'+"\nImportant Note:"+'\033[0m'
+    print "fort.15 and meteorological files have to be generated manually "
+    print "by the user as described in Subdomain Modeling User Guide.\n"
+
+def usage():
+    scriptName = os.path.basename(__file__)
+    print ""
+    print "Usage:"
+    print " ", scriptName, "fulldomainDir subdomainDir"
 
 
-if __name__ == "__main__":
-	if len(sys.argv) == 4:
-		main(sys.argv[1], sys.argv[2], sys.argv[3])
-		print(" fort.015 and fort.14 files are created for the subdomain grid.\n")
-        elif len(sys.argv) == 6:
-		main(sys.argv[1], sys.argv[2], sys.argv[3])
-		main13( sys.argv[3], sys.argv[4], sys.argv[5], 'py.140' )
-		print(" fort.015, fort.13 and fort.14 files are created for the subdomain grid.\n")
-	else:
-                print("")
-                print("gensub.py: This scripts carves out a subdomain grid from a full domain grid.")
-                print("")
-		print(" Usage:")
-		print(" a) Extract fort.14 only:")
-		print("     gensub.py [full fort.14] [0 for ellipse, 1 for circle] [sub fort.14]")
-		print(" b) Extract fort.14 and fort.13:")
-		print("     gensub.py [full fort.14] [0 for ellipse, 1 for circle] [sub fort.14] [full fort.13] [sub fort.13] ")
-		print("")
-		print("\tFor an elliptical subdomain, provide 'shape.e14'")
-		print("\tFor a circular subdomain, provide 'shape.e14'")
-		print("")
+if __name__== "__main__":
+    if len(sys.argv) == 3:
+        main(sys.argv[1],sys.argv[2])
+    else:
+        usage()
+
+
