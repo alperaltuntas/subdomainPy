@@ -27,12 +27,12 @@ def getSubdomains():
     subDirs = []
     while True: 
         # Get the subdomain directory:
-        subDir = raw_input('Enter the directory of the subdomain '+
+        subDir = raw_input('Enter the directory of a subdomain '+
                             '(Type "done" when finished):\n')
 
         # Check if the user is done:
         if subDir.lower() == "done" or subDir.lower() == '"done"':
-            print "\n The following subdomains are added: "
+            print "\nThe following subdomains are added: "
             for sub in subdomains:
                 print " ", sub.dir
             break
@@ -137,114 +137,85 @@ def writeSwanStationsFile(full,subdomains):
             swanStationFile.write(str(x)+"\t "+str(y)+"\n")
 
 
-# Modifies the fort.26 files of METIS partitions of the full domain
+# Modifies the fort.26 file of the full domain
 def modifyFort26(full,subdomains):
 
-    # Check if no. partitions is supported:
-    if (full.nprocs>10000):
-        print "ERROR: number of METIS partitions cannot be greater than 10,000."
-        exit()
-    
-    # Loop over all METIS partitions of the full domain:
-    for proc in range(full.nprocs):
-        
-        # Instantiate the partition as a domain:
-        partitionDir = full.dir+"PE"+"0"*(4-len(str(proc)))+str(proc)+"/"
-        partition = Domain(partitionDir)
-    
-        # Read the partitioned grid file:
-        partition.readFort14()
-        sys.stdout.write("\033[F")  # erase the printed log for PE*/fort.14 file
-       
-        # Rename and open the old fort26 file:
-        if (not os.path.isfile(partition.dir+"fort.26")):
-            print "ERROR: Couldn't locate ", partition.dir+"fort.26"
-            exit() 
-        os.rename(partition.dir+"fort.26",partition.dir+"oldfort.26")
-        old26 = partition.openInputFile("oldfort.26")
+    # Rename and open the old fort26 file:
+    if (not os.path.isfile(full.dir+"fort.26")):
+        print "ERROR: Couldn't locate ", full.dir+"fort.26"
+        exit() 
+    os.rename(full.dir+"fort.26",full.dir+"oldfort.26")
+    old26 = full.openInputFile("oldfort.26")
 
-        # Write the new fort.26 file:
-        new26 = open(partition.dir+"fort.26",'w')
-        passed_block_g = False # True if the line is after Block (g) of fort.26 file,
-                               # The additional line for the output locations must be added
-                               # in Block (g)
-        tbeg = None # the start date
-        delt = None # the duration of a timestep
-        unit = None # unit of delt
+    # Write the new fort.26 file:
+    new26 = open(full.dir+"fort.26",'w')
+    passed_block_g = False # True if the line is after Block (g) of fort.26 file,
+                           # The additional line for the output locations must be added
+                           # in Block (g)
+    tbeg = None # the start date
+    delt = None # the duration of a timestep
+    unit = None # unit of delt
 
-        for line in old26:
-        
-            if (not passed_block_g):
-                lineSplit = line.split()
+    for line in old26:
+
+        # Avoid duplicate lines if the scipt is run multiple times without preprocessing:
+        if line[0:30]=="$ Read the list of Subdomain B" or \
+           line[0:30]=="POINTS 'P1' FILE 'swanStations" or \
+           line[0:30]=="$ Record SWAN output for Subdo" or \
+           line[0:30]=="SPEC 'P1' SPEC2D ABS 'spec2d.6":
+            continue
+    
+        if (not passed_block_g):
+            lineSplit = line.split()
                
-                # Retrieve tbeg, delt, and unit 
-                if lineSplit[0][0:3].lower()=="inp" and lineSplit[1][0:2].lower()=="wi": 
-                    tbeg = lineSplit[6]
-                    delt = lineSplit[7]
-                    unit = lineSplit[8]
+            # Retrieve tbeg, delt, and unit 
+            if lineSplit[0][0:3].lower()=="inp" and lineSplit[1][0:2].lower()=="wi": 
+                tbeg = lineSplit[6]
+                delt = lineSplit[7]
+                unit = lineSplit[8]
            
-                # add the lines to record the SWAN boundary conditions for subdomains 
-                if (lineSplit[0][0:3].lower()=="qua" or \
-                    lineSplit[0][0:4].lower()=="outp" or \
-                    lineSplit[0][0:3].lower()=="blo" or \
-                    lineSplit[0][0:3].lower()=="tab" or \
-                    lineSplit[0][0:4].lower()=="spec" or \
-                    lineSplit[0][0:4].lower()=="nest" or \
-                    lineSplit[0][0:4].lower()=="comp"):
+            # add the lines to record the SWAN boundary conditions for subdomains 
+            if (lineSplit[0][0:3].lower()=="qua" or \
+                lineSplit[0][0:4].lower()=="outp" or \
+                lineSplit[0][0:3].lower()=="blo" or \
+                lineSplit[0][0:3].lower()=="tab" or \
+                lineSplit[0][0:4].lower()=="spec" or \
+                lineSplit[0][0:4].lower()=="nest" or \
+                lineSplit[0][0:4].lower()=="comp"):
 
-                    # Check if tbeg, delt, and unit are retrived yet:
-                    if not (tbeg and delt and unit):
-                        print "ERROR: Couldn't retrieve tbeg, delt, and unit from fort.26" 
-                        print "Exiting"
-                        exit()
+                # Check if tbeg, delt, and unit are retrived yet:
+                if not (tbeg and delt and unit):
+                    print "ERROR: Couldn't retrieve tbeg, delt, and unit from fort.26" 
+                    print "Exiting"
+                    exit()
 
-                    new26.write("$ Read the list of Subdomain Boundary Nodes: \n")
-                    new26.write("POINTS 'P1' FILE 'swanStations.txt' \n")
-                    new26.write("$\n")
-                    new26.write("$ Record SWAN output for Subdomain Boundary Conditions: \n")
-                    new26.write( "SPEC 'P1' SPEC2D ABS 'spec2d.63' OUTPUT "+\
+                new26.write("$ Read the list of Subdomain Boundary Nodes: \n")
+                new26.write("POINTS 'P1' FILE 'swanStations.txt' \n")
+                new26.write("$\n")
+                new26.write("$ Record SWAN output for Subdomain Boundary Conditions: \n")
+                new26.write( "SPEC 'P1' SPEC2D ABS 'spec2d.63' OUTPUT "+\
                                 tbeg+" "+delt+" "+unit+"\n$\n")
 
-                    passed_block_g = True
+                passed_block_g = True
 
-            # Avoid duplicate lines if the scipt is run multiple times without preprocessing:
-            elif line[0:30]=="$ Read the list of Subdomain B" or \
-                 line[0:30]=="POINTS 'P1' FILE 'swanStations" or \
-                 line[0:30]=="$ Record SWAN output for Subdo" or \
-                 line[0:30]=="SPEC 'P1' SPEC2D ABS 'specout'":
-                continue
-              
-            # Write the line from the old fort.26 
-            new26.write(line) 
+        # Write the line from the old fort.26 
+        new26.write(line) 
 
 
 # Prepares a given full domain for an ADCIRC run. 
 # (Generates a fort.015 file and modifies fort.26 if it is a ADCIRC+SWAN run).
 def main(fulldir):
 
-    print " -----------------------------------------"
-    print "  NCSU Subdomain Modeling for ADCIRC+SWAN"
-    print " -----------------------------------------\n"
-
-    print " This script will prepare the full domain at", \
-            fulldir,"for an ADCIRC run.\n"
+    print ""
+    print '\033[95m'+'\033[1m'+"NCSU Subdomain Modeling for ADCIRC+SWAN"+'\033[0m'
+    print ""
+    print "Preparing the full domain at", fulldir,"for an ADCIRC run.\n"
   
     full = Domain(fulldir)
     
     # Remove the existing fort.015:
     if os.path.exists(full.dir+"fort.015"):
         os.remove(full.dir+"fort.015")
-
-    # Check if fort.26 exists. If so, ensure the full domain is partitioned beforehand:
-    if full.isCoupledAdcircSwan():
-        if not full.isPartitioned():
-            print "ERROR!!!:"
-            print " A swaninit or fort.26 (Swan Control) file is found in full domain directory."
-            print " For ADCIRC+SWAN runs, the full domain MUST be preprocessed (using adcprep)"
-            print " before this script is executed. Run this script after (each time) the"
-            print " preprocessor is executed for the full domain."
-            exit()
-
 
     # Determine the list of nodes to be recorded for subdomain boundary conditions:
     subdomains = [] 
@@ -285,7 +256,7 @@ def main(fulldir):
         nspoolgs = str(int(nspoolgs))
     except:
         nspoolgs = str(100)
-        print " NSPOOLGS is set to 100."
+        print "NSPOOLGS is set to 100.\n"
 
     # Read full fort.14
     full.readFort14()
@@ -296,32 +267,27 @@ def main(fulldir):
     # If an ADCIRC+SWAN run, make additional adjustments:
     if full.isCoupledAdcircSwan():
 
-        # Read fort80: (METIS partition information)
-        full.readFort80()
-
         # Write SWAN b.c. recording stations list file
         writeSwanStationsFile(full,subdomains)
             
-        # Modify fort26 (SWAN control file) of METIS partitions
+        # Modify fort26 (SWAN control file):
         modifyFort26(full,subdomains)
 
     # The final log message:
-    print "\n\n The full domain is now ready."
-    print " The remaining steps in the Subdomain Modeling Workflow:"
-    print "\t2. Run ADCIRC on full domain"
-    print "\t3. Extract subdomain boundary conditions"
-    print "\t4. Run ADCIRC on subdomain\n" 
+    print "\nThe full domain is now ready."
 
-    if full.isCoupledAdcircSwan():
-        print "  Important Note for ADCIRC+SWAN runs:"
-        print "   Re-run this script after each time adcprep is executed for the full domain.\n"
+    # Check if the full domain is coupled and preprocessed:
+    if full.isCoupledAdcircSwan() and full.isPartitioned():
+        print '\033[91m'+"\nImportant Note:"+'\033[0m'
+        print "The full domain is previously preprocessed. Re-run adcprep to make sure "+\
+              "that partitioned fort.26 files are up-to-date.\n"
 
 
 def usage():
     scriptName = os.path.basename(__file__)
     print ""
     print "Usage:"
-    print " python", scriptName, "fulldomainDir"
+    print "\t", scriptName, "fulldomainDir"
 
 
 if __name__== "__main__":
