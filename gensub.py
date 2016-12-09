@@ -332,7 +332,7 @@ def usage():
     scriptName = os.path.basename(__file__)
     print ""
     print "Usage:"
-    print " ", scriptName, "fulldomainDir subdomainDir"
+    print " ", scriptName, "fulldomainDir subdomainDir\n"
 
 
 if __name__== "__main__":

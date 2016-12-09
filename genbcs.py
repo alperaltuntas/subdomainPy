@@ -119,7 +119,7 @@ def usage():
     scriptName = os.path.basename(__file__)
     print ""
     print "Usage:"
-    print '\t', scriptName, "fullDomainDir subDomainDir [sbtiminc]"
+    print '\t', scriptName, "fullDomainDir subDomainDir [sbtiminc]\n"
 
 
 if __name__== "__main__":
