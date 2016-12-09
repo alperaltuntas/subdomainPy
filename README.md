@@ -5,7 +5,7 @@ Subdomain modeling is an exact reanalysis technique for ADCIRC+SWAN that enables
 
 This repository provides Python sripts that allow users to extract subdomain grids and generate full and subdomain input files including control file, grid information file, nodal attributes file, SWAN control file, and ADCIRC+SWAN boundary condition files.
 
-- [Subdomain Modeling **User Manual**](https://github.com/alperaltuntas/subdomainPy/blob/master/doc/userManual.pdf)
+- [**User Manual**](https://github.com/alperaltuntas/subdomainPy/blob/master/doc/userManual.pdf)
 
 *Subdomain Modeling enables the assesment of many local design and failure scenarios with less computational effort:*
 
