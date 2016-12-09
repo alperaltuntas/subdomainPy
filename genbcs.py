@@ -106,6 +106,8 @@ def main(fulldir, subdir, sbtiminc):
     sys.stdout.write("100%")
     sys.stdout.flush()
 
+    sub.fort019.close()
+    
     print "\n\nADCIRC boundary conditions for the subdomain at",sub.dir,"are now ready.\n"
     if full.isCoupledAdcircSwan():
         print '\033[91m'+"\nImportant Note:"+'\033[0m'

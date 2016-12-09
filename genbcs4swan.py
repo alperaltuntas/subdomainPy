@@ -81,6 +81,9 @@ def writePartFort26(sub):
             # Write the original line from the old fort.26 file: 
             new26.write(line)
 
+        old26.close()
+        new26.close()
+
 # Returns the number of SWAN timesteps:
 def getSWANtimesteps(fort26dir):
 
@@ -141,6 +144,7 @@ def getSWANtimesteps(fort26dir):
         print "ERROR: Couldn't retrieve time information from ", fort26dir 
         exit()
 
+    fort26.close()
     return nTimesteps
 
 # Write the b.c. files to each METIS partition directory:
@@ -176,6 +180,7 @@ def writeBCfiles(full,sub):
             else:   
                 fullNodes[proc] = set([fullNode])
 
+
     # Read the list of spectral output locations from full fort.015
     fullfort015 = open(full.dir+"fort.015")
     line = None
@@ -191,6 +196,7 @@ def writeBCfiles(full,sub):
     specLocs = []
     for i in range(ncbnr):
         specLocs.append(int(fullfort015.readline().split()[0]))
+    fullfort015.close()
     
     # Read spec file headers:
     specFiles = dict()
@@ -263,15 +269,21 @@ def writeBCfiles(full,sub):
     print ""       
     for proc in fullProcs:
         specFiles[proc].close()
-    print "done."
+    for proc in range(sub.nprocs):
+        partition = sub.partitions[proc]
+        for bnode in partition.nbdv:
+            bcfile = bcFiles[proc][bnode]
+            bcfile.close()
+
+    print "\nSWAN boundary conditions are now ready.\n"
 
 
 def main(fulldir, subdir):
 
-    print " -----------------------------------------"
-    print "  NCSU Subdomain Modeling for ADCIRC+SWAN"
-    print " -----------------------------------------\n"
-    print " Generating boundary conditions files for the subdomain at",subdir
+    print ""
+    print '\033[95m'+'\033[1m'+"NCSU Subdomain Modeling for ADCIRC+SWAN"+'\033[0m'
+    print ""
+    print "Generating SWAN boundary conditions files for the subdomain at",subdir
 
     # Instantiate the subdomain object:
     full = Domain(fulldir)
@@ -300,7 +312,7 @@ def usage():
     scriptName = os.path.basename(__file__)
     print ""
     print "Usage:"
-    print '\t', scriptName, "fullDomainDir subDomainDir"
+    print ' ', scriptName, "fullDomainDir subDomainDir"
 
 
 if __name__== "__main__":

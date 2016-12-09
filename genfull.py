@@ -52,7 +52,8 @@ def getSubdomains():
 
         # Check if the subdomain directory is valid:
         if not os.path.exists(subDir):
-            print "\nWARNING: Subdomain is NOT added! The directory "+subDir+" does not exist."
+            print '\033[91m'+"\nWARNING:"+'\033[0m'
+            print "Subdomain is NOT added! The directory "+subDir+" does not exist."
             continue
             
         # Read the input files:
@@ -131,11 +132,12 @@ def writeSwanStationsFile(full,subdomains):
             swanStationFile.write(str(x)+"\t "+str(y)+"\n")
     else:
         # Record all full domain nodes:
-        for n in range(full.np):
+        for n in range(1,full.np+1):
             x = full.nodes[n][0] 
             y = full.nodes[n][1] 
             swanStationFile.write(str(x)+"\t "+str(y)+"\n")
-
+    
+    swanStationFile.close()
 
 # Modifies the fort.26 file of the full domain
 def modifyFort26(full,subdomains):
@@ -201,6 +203,8 @@ def modifyFort26(full,subdomains):
         # Write the line from the old fort.26 
         new26.write(line) 
 
+    old26.close()
+    new26.close()
 
 # Prepares a given full domain for an ADCIRC run. 
 # (Generates a fort.015 file and modifies fort.26 if it is a ADCIRC+SWAN run).
@@ -221,7 +225,7 @@ def main(fulldir):
     subdomains = [] 
     predetermine = None
     while True:
-        predetermine = raw_input("Specify predetermined subdomains? (y or n). [Default: y] \n")
+        predetermine = raw_input("Specify predefined subdomains? (y or n). [Default: y] \n")
         if predetermine.lower()=='y' or predetermine.lower()=='n':
             break
         elif len(predetermine)==0:
@@ -235,9 +239,10 @@ def main(fulldir):
         subdomains = getSubdomains()
     else:
         # Record all of the full domain nodes:
-        print "\nWARNING: If no predetermined subdomain is provided, full domain ADCIRC run will"
-        print "         record ALL nodes to provide boundary conditions for any future subdomain."
-        print "         This will require substantial amount of resources."
+        print '\033[91m'+"\nWARNING:"+'\033[0m'
+        print "If no predefined subdomain is provided, full domain ADCIRC run will"
+        print "record ALL nodes to provide boundary conditions for any future subdomain."
+        print "This will require substantial amount of resources."
 
         while True:
             cont = raw_input("\nContinue? (y or n):\n")
@@ -282,12 +287,26 @@ def main(fulldir):
         print "The full domain is previously preprocessed. Re-run adcprep to make sure "+\
               "that partitioned fort.26 files are up-to-date.\n"
 
+    # Check if fort.15 has subdomainModeling namespace:
+    full15 = open(full.dir+"fort.15")
+    subNamespace = False
+    for line in full15:
+        if line.split()[0].lower() == "&subdomainmodeling":
+            subNamespace = True
+            break
+    full15.close()
+    if not subNamespace:
+        print '\033[91m'+"WARNING:"+'\033[0m'
+        print "Full domain fort.15 file does not include subdomainModeling namespace."
+        print "Add the following line to the end of fort.15 file to activate subdomain modeling:"
+        print "&subdomainModeling subdomainOn=T /"
+        print ""
 
 def usage():
     scriptName = os.path.basename(__file__)
     print ""
     print "Usage:"
-    print "\t", scriptName, "fulldomainDir"
+    print " ", scriptName, "fulldomainDir"
 
 
 if __name__== "__main__":

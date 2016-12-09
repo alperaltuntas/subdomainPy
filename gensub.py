@@ -170,20 +170,6 @@ def writeFort14(sub,header):
     fort14.write("0\t!no. of land boundary segments\n0\t!no. of land boundary nodes")
     fort14.close()
        
-
-def writeNewToOld(nodes, elements, output_name, output_name2, num_n, num_e):
-    a = open(output_name, "w")
-    a.write("new old " + str(num_n) + "\n")
-    for i in range(0, len(nodes)):
-        a.write(str(nodes[i].n) + " " + str(nodes[i].o_n) + "\n")
-    a.close()
-
-    a = open(output_name2, "w")
-    a.write("new old " + str(num_e) + "\n")
-    for i in range(0, len(elements)):
-        a.write(str(i+1) + " " + str(elements[i].o_n) + "\n")
-    a.close()
-
 def extractFort14(full,sub,shape):
     print "\nExtracting fort.14:"
 
@@ -268,17 +254,17 @@ def extractFort13(full,sub):
     
 # Write subdomain control file of the subdomain
 def writeFort015(sub):
-    print "Generating fort.015 at ", sub.dir
+    print "Generating fort.015 at", sub.dir
     fort015 =  open(sub.dir+"fort.015", 'w')
     fort015.write( "0" + "\t!NOUTGS" + '\n' )
     fort015.write( "0" + "\t!NSPOOLGS" + '\n' )
     fort015.write( "1" + "\t!enforceBN" + '\n' )    # type-1 b.c. by default
     fort015.write( "0" + "\t!ncbnr" + '\n' )    
-   
+    fort015.close() 
 
 # Writes nodal and elemental mapping files of the subdomain:
 def writeNewToOld(sub):
-    print "Generating nodal and elemental mapping files at ", sub.dir
+    print "Generating nodal and elemental mapping files at", sub.dir
 
     py140 = open(sub.dir+"py.140","w")
     py140.write("Nodal mapping from sub to full\n")
