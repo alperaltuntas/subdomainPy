@@ -289,6 +289,14 @@ def main(fulldir, subdir):
     full = Domain(fulldir)
     sub = Domain(subdir)
 
+    # check if subdomain is partitioned: 
+    if not sub.isPartitioned():
+        print '\033[91m'+"\nERROR:"+'\033[0m'
+        print "Subdomain is not preprocessed!"
+        print "Partition the subdomain using adcprep before executing this script."
+        print "exiting...\n"
+        exit()
+
     # Read the input files:
     full.readFort14()
     full.readFort80()
