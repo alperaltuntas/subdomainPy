@@ -73,7 +73,7 @@ def writePartFort26(sub):
                     printed_bnodes.append(bnode)
 
                     # list the boundary node in fort.26
-                    new26.write( "BOUNDSPEC SEG IJ %s VARIABLE FILE LEN=0 '%s' SEQ=1 \n"
+                    new26.write( "BOUNDSPEC SEGMENT IJ %s VARIABLE FILE LEN=0 '%s' SEQ=1 \n"
                                 %(str(bnode), partition.dir+"bc"+str(bnode)+".019") )
 
                 new26.write("$ \n")
