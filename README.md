@@ -10,7 +10,7 @@ Python sripts that allow users to extract subdomain grids and generate full and 
 
 #### Manual:
 
-- [**Subdomain Modeling User Manual**](https://github.com/alperaltuntas/subdomainPy/blob/master/doc/userManual.pdf)
+- [Sbdomain Modeling User Manual](https://github.com/alperaltuntas/subdomainPy/blob/master/doc/userManual.pdf)
 
 #### Home Page:
 - [Subdomain Modeling Home Page](http://www4.ncsu.edu/~jwb/subdomain/)
