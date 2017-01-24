@@ -43,7 +43,7 @@ def remap( full_dir, sub_dir, py140=None ):
 
         for old, new in map_to_refined:
 
-            f.write('{0}\t{1}\n'.format(new, old))
+            f.write(str(new) + '\t' + str(old) + '\n')
 
 def find_mapping( node_map, node ):
 
