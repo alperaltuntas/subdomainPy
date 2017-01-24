@@ -8,3 +8,6 @@
 
 # VIM backup
 *swp
+
+# PyCharm
+.idea
