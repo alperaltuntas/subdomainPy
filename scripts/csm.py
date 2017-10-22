@@ -1,17 +1,17 @@
 # CSM: Python Module for the Conventional Subdomain Modeling Approach
-#   Copyright (C) 2017 
+#   Copyright (C) 2017
 #   Computational Modeling Group, NCSU <http://www4.ncsu.edu/~jwb/>
 #   Alper Altuntas <alperaltuntas@gmail.com>
 
 import os
 import math
-import numpy 
+import numpy
 
 # csm.Domain:
 
-# The Domain class encapsulates the properties and input/output files of an 
-# an ADCIRC domain (either full or sub) at a give directory (domainDir). 
-# The class includes member functions to read and write input and output files 
+# The Domain class encapsulates the properties and input/output files of an
+# an ADCIRC domain (either full or sub) at a give directory (domainDir).
+# The class includes member functions to read and write input and output files
 # for the pre- and post-processing of a (full or sub) domain
 
 class Domain(object,):
@@ -34,7 +34,7 @@ class Domain(object,):
         if os.path.exists(self.dir+"fort.26") or os.path.exists(self.dir+"swaninit"):
             return True
         return False
-    
+
     # Opens and returns an input file with a given name at self.dir
     def openInputFile(self,fileName):
         try:
@@ -42,7 +42,7 @@ class Domain(object,):
             return fileObj
         except:
             print "Error: Cannot open ", fileName, " at ", self.dir
-            exit()        
+            exit()
 
 
     # Reads the Grid Information (fort.14) file of the domain
@@ -52,7 +52,7 @@ class Domain(object,):
 
         # Read the header:
         self.f14header = fort14.readline()
-        
+
         # Number of nodes and elements: (fort.14 parameters)
         line = fort14.readline()
         self.ne = int(line.split()[0])
@@ -61,8 +61,8 @@ class Domain(object,):
         # Initialize the list of nodes and elements
         self.nodes = [None]*(self.np+1)
         self.elements = [None]*(self.ne+1)
-       
-        # Read the list of nodes 
+
+        # Read the list of nodes
         for n in range(self.np):
             sline = fort14.readline().split()
             node = int(sline[0])
@@ -71,7 +71,7 @@ class Domain(object,):
             d = float(sline[3])
             self.nodes[node] = [xc,yc,d]
 
-        # Read the list of elements 
+        # Read the list of elements
         for e in range(self.ne):
             sline = fort14.readline().split()
             ele = int(sline[0])
@@ -79,12 +79,12 @@ class Domain(object,):
             n2 = int(sline[3])
             n3 = int(sline[4])
             self.elements[ele] = [n1,n2,n3]
-    
+
         # Read boundary information
 
         line = fort14.readline()
         self.nope = int(line.split()[0])    # no of elev boundary forcing segments
-        line = fort14.readline()        
+        line = fort14.readline()
         self.neta = int(line.split()[0])    # total number of elev boundary nodes
         self.nbdv = []                      # elevation specified boundary node numbers
 
@@ -97,9 +97,9 @@ class Domain(object,):
 
         line = fort14.readline()
         self.nbou = int(line.split()[0])    # no. of normal flow (discharge) specified bdry segments
-        line = fort14.readline()        
-        self.nvel = int(line.split()[0])    # total no. of normal flow specified bdry nodes 
-        self.nbvv = []                      # node numbers on normal flow boundary segment k. 
+        line = fort14.readline()
+        self.nvel = int(line.split()[0])    # total no. of normal flow specified bdry nodes
+        self.nbvv = []                      # node numbers on normal flow boundary segment k.
 
         for k in range(self.nbou):
             line = fort14.readline()
@@ -107,7 +107,7 @@ class Domain(object,):
             for j in range(nvell):
                 line = fort14.readline()
                 self.nbvv.append(int(line.split()[0]))
-            
+
         fort14.close()
 
 
@@ -117,7 +117,7 @@ class Domain(object,):
 
         # Open fort.80 file:
         fort80 = self.openInputFile("fort.80")
-        
+
         # Skip the initial lines:
         for i in range(14):
             sline = fort80.readline().split()
@@ -127,21 +127,21 @@ class Domain(object,):
                 self.ne = int(sline[0])
                 self.np = int(sline[1])
             elif i==4:
-                # Read the number of processors 
+                # Read the number of processors
                 self.nprocs = int(sline[0])
-                
+
         #create mapping array between proc and global node numbering:
         self.nodesP2G = [None]*self.nprocs      #initialize 2D mapping array
-        self.pnnodes=[None]*self.nprocs # number of nodes for each processor   
+        self.pnnodes=[None]*self.nprocs # number of nodes for each processor
 
-        self.allNodes = dict() 
+        self.allNodes = dict()
         for proc in range(self.nprocs):
             line = fort80.readline()
             proc = int(line.split()[0])
-    
+
             self.pnnodes[proc] = int(line.split()[1])
             self.nodesP2G[proc] = [None]*(self.pnnodes[proc] + 1)
-    
+
             lines = int(math.ceil(float(self.pnnodes[proc])/9))
             for l in range(lines):
                 line = fort80.readline()
@@ -150,7 +150,7 @@ class Domain(object,):
                         pn =  l*9+(i+1)
                         gn = int(line.split()[i])
                         self.nodesP2G[proc][pn] = gn
-                        self.allNodes[gn,proc] = pn 
+                        self.allNodes[gn,proc] = pn
                 except:
                     continue
                     #print "node mapping ok",proc
@@ -164,11 +164,11 @@ class Domain(object,):
             proc = int(line.split()[1])
             pn = int(line.split()[2])
             self.innerNodes[gn] = [proc,pn]
-        
+
         #print "Done reading fort.80"
 
 
-    # Reads the nodal mapping file of a subdomain        
+    # Reads the nodal mapping file of a subdomain
     def readPy140(self):
         print "\t Reading py.140 at ", self.dir
         py140 = self.openInputFile("py.140")
@@ -180,21 +180,28 @@ class Domain(object,):
             self.n2o[new] = old
 
     def openFort065(self):
-        if not os.path.exists(self.dir+'fort.065'):     
+        if not os.path.exists(self.dir+'fort.065'):
             print "ERROR: Couldn't find fort.065 at", self.dir
             exit()
+
+        # first, get the number of lines:
+        self.fort065 = open(self.dir+"fort.065")
+        nlines = sum(1 for line in self.fort065)
+        self.fort065.close()
+
+        # now, actually read it:
         self.fort065 = open(self.dir+"fort.065")
         line = self.fort065.readline()
         line = self.fort065.readline()
         self.nspoolgs = int( line.split()[0] )
         self.ncbnr = int( line.split()[1] )
-        self.nrtimesteps = int( line.split()[2] )
         self.cbnr = [None]*self.ncbnr
         self.ec = [None]*self.ncbnr
         self.uc = [None]*self.ncbnr
         self.vc = [None]*self.ncbnr
         self.wdc = [None]*self.ncbnr
 
+        self.nrtimesteps = int( (nlines-2)/(self.ncbnr*2+1) )
 
     def openFort065_parallel(self):
         self.fort065 = [None]*self.nprocs
@@ -211,18 +218,24 @@ class Domain(object,):
             if not os.path.exists(p065):
                 print "ERROR: Couldn't find fort.065 at ",self.dir+p065
                 exit()
+
+            # first, get the number of lines:
+            self.fort065[proc] = open(p065)
+            nlines = sum(1 for line in self.fort065[proc])
+            self.fort065[proc].close()
+
             self.fort065[proc] = open(p065)
             line = self.fort065[proc].readline()
             line = self.fort065[proc].readline()
             self.nspoolgs = int( line.split()[0] )
             self.ncbnr[proc] = int( line.split()[1] )
-            self.nrtimesteps = int( line.split()[2] )
             self.cbnr[proc] = [None]*self.ncbnr[proc]
             self.ec[proc] = [None]*self.ncbnr[proc]
             self.uc[proc] = [None]*self.ncbnr[proc]
             self.vc[proc] = [None]*self.ncbnr[proc]
             self.wdc[proc] = [None]*self.ncbnr[proc]
 
+            self.nrtimesteps = int( (nlines-2)/(self.ncbnr[proc]*2+1) )
 
     def readFort065(self):
         self.tsline = self.fort065.readline()
@@ -261,7 +274,7 @@ class Domain(object,):
         self.fort019.write(f.tsline)
         #for cb in self.cbn:
         for cb in self.nbdv:
-            gn = self.n2o[cb]           
+            gn = self.n2o[cb]
             i = f.cbnr.index(gn)
             self.fort019.write(str(cb)+'\t'+str(f.ec[i])+'\t'+str(f.uc[i])+'\n')
             self.fort019.write(str(f.vc[i])+'\t'+str(f.wdc[i])+'\n')
@@ -272,8 +285,8 @@ class Domain(object,):
         #for cb in self.cbn:
         for cb in self.nbdv:
             gn = self.n2o[cb]
-            proc = self.cbIndex[cb][0]  
-            i = self.cbIndex[cb][1] 
+            proc = self.cbIndex[cb][0]
+            i = self.cbIndex[cb][1]
             self.fort019.write(str(cb)+'\t'+str(f.ec[proc][i])+'\t'+str(f.uc[proc][i])+'\n')
             self.fort019.write(str(f.vc[proc][i])+'\t'+str(f.wdc[proc][i])+'\n')
 
@@ -287,10 +300,10 @@ class Domain(object,):
                     if gn == node:
                         self.cbIndex[cb] = [proc,i]
                     i=i+1
-        
 
 
-# Encapsulates the parameters in a shape file 
+
+# Encapsulates the parameters in a shape file
 class SubShape:
     def __init__(self,subDir):
 
@@ -353,7 +366,7 @@ class SubShape:
             self.y2 = float(line.split()[1])
             line = self.file.readline()
             self.w = float(line.split()[0])
-    
+
             self.c = [ (self.x1+self.x2)/2., (self.y1+self.y2)/2.] # center of the ellipse
             self.d = ( (self.x1-self.x2)**2 + (self.y1-self.y2)**2)**(0.5) # distance
             self.theta = math.atan( (self.y1-self.y2)/(self.x1-self.x2) ) # theta to positive x axis
