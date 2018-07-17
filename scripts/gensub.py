@@ -20,22 +20,37 @@ from csm import Domain, SubShape
 # Determines the nodes of a full domain that fall within a subdomain with 
 # the given circular shape
 def trimNodesCircle(full,sub,shape):
-    sub.nodes = [None]
-    sub.subToFullNode = dict()
-    sub.fullToSubNode = dict()
+
+    candidateNodes = set()
     for n in range(1,len(full.nodes)):
         node = full.nodes[n]
         if ( (shape.x-node[0])**2 + (shape.y-node[1])**2 < (shape.r)**2):
-            sub.subToFullNode[len(sub.nodes)] = n
-            sub.fullToSubNode[n] = len(sub.nodes)
-            sub.nodes.append(node)
+             candidateNodes.add(n) #n:node id
+
+    confirmedNodes = set()
+    for e in range(1,len(full.elements)):
+        ele = full.elements[e]
+        nIncNodes = sum([1 if ele[i] in candidateNodes else 0 for i in range(3)])
+        if nIncNodes == 3:
+            confirmedNodes.add(ele[0])
+            confirmedNodes.add(ele[1])
+            confirmedNodes.add(ele[2])
+    confirmedNodes = sorted(confirmedNodes)
+
+    sub.nodes = [None]
+    sub.subToFullNode = dict()
+    sub.fullToSubNode = dict()
+    for n in confirmedNodes:
+        node = full.nodes[n]
+        sub.subToFullNode[len(sub.nodes)] = n
+        sub.fullToSubNode[n] = len(sub.nodes)
+        sub.nodes.append(node)
     
 # Determines the nodes of a full domain that fall within a subdomain with 
 # the given elliptical shape
 def trimNodesEllipse(full,sub,shape):
-    sub.nodes = [None]
-    sub.subToFullNode = dict()
-    sub.fullToSubNode = dict()
+
+    candidateNodes = set()
     for n in range(1,len(full.nodes)):
         node = full.nodes[n]
         #transform Global Coordinates to local coordinates
@@ -43,11 +58,26 @@ def trimNodesEllipse(full,sub,shape):
         Y = node[1] - shape.c[1] 
         x = shape.cos*X - shape.sin*Y
         y = shape.sin*X + shape.cos*Y
-
         if(x**2/shape.xaxis**2 + y**2/shape.yaxis**2 < 1):
-            sub.subToFullNode[len(sub.nodes)] = n
-            sub.fullToSubNode[n] = len(sub.nodes)
-            sub.nodes.append(node)
+            candidateNodes.add(n) #n:node id
+
+    confirmedNodes = set()
+    for e in range(1,len(full.elements)):
+        ele = full.elements[e]
+        nIncNodes = sum([1 if ele[i] in candidateNodes else 0 for i in range(3)])
+        if nIncNodes == 3:
+            confirmedNodes.add(ele[0])
+            confirmedNodes.add(ele[1])
+            confirmedNodes.add(ele[2])
+    confirmedNodes = sorted(confirmedNodes)
+
+    sub.nodes = [None]
+    sub.subToFullNode = dict()
+    sub.fullToSubNode = dict()
+    for n in confirmedNodes:
+        sub.subToFullNode[len(sub.nodes)] = n
+        sub.fullToSubNode[n] = len(sub.nodes)
+        sub.nodes.append(node)
 
 # Determines the elements of a full domain that fall within a subdomain
 def trimElements(full,sub):
@@ -91,7 +121,7 @@ def trimElements(full,sub):
 # Re-orders the list of boundary nodes of a subdomain
 def orderBoundaryNodes(sub):
 
-    # Determine the neighbors and elements of subdomain boundary nodes:
+    # Determine the neighbors and elements of subdomain nodes:
     eles = [None]*(len(sub.nodes)+1)        # set of elements for each node
     neighbors = [None]*(len(sub.nodes)+1)   # set of neighbors for each node
     for i in range(1,len(sub.nodes)+1):
@@ -100,10 +130,9 @@ def orderBoundaryNodes(sub):
     for e in range(1,len(sub.elements)):
         for i in range(3):
             node = sub.elements[e][i]
-            if sub.isSubBoundary[node]:
-                eles[node].add(e)
-                neighbors[node].add(sub.elements[e][(i+1)%3])
-                neighbors[node].add(sub.elements[e][(i+2)%3])
+            eles[node].add(e)
+            neighbors[node].add(sub.elements[e][(i+1)%3])
+            neighbors[node].add(sub.elements[e][(i+2)%3])
 
     # Initialize the list of ordered subdomain boundary nodes:
     sub.nbdv = []
@@ -116,23 +145,38 @@ def orderBoundaryNodes(sub):
     def addBoundaryNode(n):
         sub.nbdv.append(n)
         isAdded[n] = True
-        sub.nbdvSet.remove(n)    
+        try:
+            sub.nbdvSet.remove(n)
+        except:
+            True # the node is not detected to be a boundary node initially at trimElements()
 
-    # Re-order:
-    addBoundaryNode(min(sub.nbdvSet))
-    while (len(sub.nbdvSet)>0):
+    # Go over the boundary:
+    addBoundaryNode(min(sub.nbdvSet)) # begin with the boundary node with smallest id
+    complete = False
+    while (not complete):
         progressed = False
         for neig in neighbors[sub.nbdv[-1]]:
-            if (sub.isSubBoundary[neig] and not isAdded[neig]):
+            if (not isAdded[neig]):
                 nCommonEles = len(eles[sub.nbdv[-1]].intersection(eles[neig]))
                 if nCommonEles==1:
                     addBoundaryNode(neig)
                     progressed = True
                     break
+            else:
+                nCommonEles = len(eles[sub.nbdv[-1]].intersection(eles[neig]))
+                if nCommonEles==1 and neig == sub.nbdv[0] and len(sub.nbdv)>4:
+                    # looped over the entire boundary
+                    progressed = True
+                    complete = True
+                    break
         if not progressed: 
-            print "ERROR: Encountered error while reordering the list of boundary nodes.\n"
-            exit()
-            break
+            raise SystemExit("ERROR: Encountered error while going over the boundary nodes.\n")
+
+    if len(sub.nbdvSet)>0:
+        raise SystemExit("\nERROR: Subdomain grid generation is unsuccesful. "
+                         "The likely cause is that there are disconnected segments "
+                         "of the subdomain grid. Try reducing the size and/or altering the location "
+                         "of the subdomain, so it covers an undivided portion of the fulldomain grid.")
 
     # Set the number of boundary nodes:
     sub.neta = len(sub.nbdv) 
