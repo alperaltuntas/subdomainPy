@@ -75,6 +75,7 @@ def trimNodesEllipse(full,sub,shape):
     sub.subToFullNode = dict()
     sub.fullToSubNode = dict()
     for n in confirmedNodes:
+        node = full.nodes[n]
         sub.subToFullNode[len(sub.nodes)] = n
         sub.fullToSubNode[n] = len(sub.nodes)
         sub.nodes.append(node)
@@ -85,8 +86,10 @@ def trimElements(full,sub):
     # Initialize subdomain properties:
     sub.elements = [None]
     sub.neta = 0            # total number of sub. boundary nodes
-    sub.nbdvSet = set()        # set of sub. boundary nodes
-    sub.isSubBoundary = [False]*(len(sub.nodes)+1) # True if i.th node is sub. boundary 
+
+    sub.nbdvSet = set()     # incomplete set of sub. boundary nodes. this set will not include
+                            # subdomain boundary nodes that are also full domain boundary nodes.
+                            #  Those boundary nodes will be determined and added to sub.nbdv later on.
     
     # Mapping from subdomain node numbering to full domain node numbering
     sub.subToFullEle = dict()
@@ -116,7 +119,6 @@ def trimElements(full,sub):
             for i in range(3):
                 if incSubNode[i]: 
                     sub.nbdvSet.add(sub.fullToSubNode[ele[i]])
-                    sub.isSubBoundary[sub.fullToSubNode[ele[i]]] = True
 
 # Re-orders the list of boundary nodes of a subdomain
 def orderBoundaryNodes(sub):
@@ -148,7 +150,8 @@ def orderBoundaryNodes(sub):
         try:
             sub.nbdvSet.remove(n)
         except:
-            True # the node is not detected to be a boundary node initially at trimElements()
+            True # the node is probably also a full domain boundary node, so
+                 # was not added to sub.nbdvSet
 
     # Go over the boundary:
     addBoundaryNode(min(sub.nbdvSet)) # begin with the boundary node with smallest id
@@ -181,10 +184,35 @@ def orderBoundaryNodes(sub):
     # Set the number of boundary nodes:
     sub.neta = len(sub.nbdv) 
 
+# add the island domains completely falling within the subdomain to the subdomain grid
+def processIslands(full,sub):
 
-def writeFort14(sub,header):
+    sub.nbou = 0  # no. of normal flow (discharge) specified bdry segments (island only for subdomains)
+    sub.nvel = 0 # total no. of normal flow specified bdry nodes. (island only for subdomains)
+    sub.nbvv = [] # ibtype and node numbers on normal flow boundary segment k. (island only for subdomains)
+
+    # first determine the islands fully falling within the subdomain grid:
+    for k in range(full.nbou): # loop over full domain normal flow (discharge) specified bdry segments
+        ibtype = full.nbvv[k][0]
+        if ibtype==1: # island boundary segment
+            withinSubdomain = True
+            for bnode in full.nbvv[k][1]:
+                if (bnode in sub.fullToSubNode and not (sub.fullToSubNode[bnode] in sub.nbdv ) ):
+                    continue
+                else:
+                    withinSubdomain = False
+                    break;
+            if withinSubdomain:
+                sub.nbou = sub.nbou +1
+                sub.nbvv.append([1,[]])
+                for bnode in full.nbvv[k][1]:
+                    sub.nvel = sub.nvel+1
+                    sub.nbvv[-1][1].append(sub.fullToSubNode[bnode])
+
+def writeFort14(full,sub):
     print "\t Writing fort.14 at",sub.dir
     
+    header = full.f14header
     fort14 = open(sub.dir+"fort.14",'w')
    
     # Write header 
@@ -203,7 +231,7 @@ def writeFort14(sub,header):
         fort14.write(str(e) + "\t3\t" + str(ele[0]) +"\t"+ str(ele[1]) +"\t"+ str(ele[2]) +"\n")
 
 
-    # Write the boundary list:
+    # Subdomain Boundaries:
     orderBoundaryNodes(sub)        
     fort14.write("1\t!no. of subdomain boundary segments\n")
     fort14.write(str(sub.neta+1) + "\t!no. of subdomain boundary nodes\n")
@@ -211,7 +239,17 @@ def writeFort14(sub,header):
     for bn in sub.nbdv:
         fort14.write(str(bn)+"\n")
     fort14.write(str(sub.nbdv[0])+"\n")
-    fort14.write("0\t!no. of land boundary segments\n0\t!no. of land boundary nodes")
+
+    # Island Boundaries within the subdomain
+    processIslands(full,sub)
+    fort14.write(str(sub.nbou)+"\t!no. of land boundary segments\n")
+    fort14.write(str(sub.nvel)+"\t!no. of land boundary nodes\n")
+    for k in range(sub.nbou):
+        nvell = len(sub.nbvv[k][1]) #  no. of nodes in normal flow specified bdry segment k
+        fort14.write(str(nvell)+" 1 \n")
+        for i in range(nvell):
+          fort14.write(str(sub.nbvv[k][1][i])+"\n")
+
     fort14.close()
        
 def extractFort14(full,sub,shape):
@@ -234,7 +272,8 @@ def extractFort14(full,sub,shape):
         exit()
 
     trimElements(full,sub)
-    writeFort14(sub,full.f14header)
+
+    writeFort14(full,sub)
 
 def extractFort13(full,sub):
     print "Extracting fort.13:"

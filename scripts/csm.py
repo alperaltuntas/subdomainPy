@@ -99,14 +99,16 @@ class Domain(object,):
         self.nbou = int(line.split()[0])    # no. of normal flow (discharge) specified bdry segments
         line = fort14.readline()
         self.nvel = int(line.split()[0])    # total no. of normal flow specified bdry nodes
-        self.nbvv = []                      # node numbers on normal flow boundary segment k.
+        self.nbvv = [None]*self.nbou   # ibtype and node numbers on normal flow boundary segment k.
 
         for k in range(self.nbou):
             line = fort14.readline()
             nvell = int(line.split()[0])    # no. of nodes in normal flow specified bdry segment k.
+            ibtype = int(line.split()[1])   # boundary type
+            self.nbvv[k] = (ibtype,[])
             for j in range(nvell):
                 line = fort14.readline()
-                self.nbvv.append(int(line.split()[0]))
+                self.nbvv[k][1].append(int(line.split()[0]))
 
         fort14.close()
 
