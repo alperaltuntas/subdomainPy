@@ -105,10 +105,30 @@ class Domain(object,):
             line = fort14.readline()
             nvell = int(line.split()[0])    # no. of nodes in normal flow specified bdry segment k.
             ibtype = int(line.split()[1])   # boundary type
-            self.nbvv[k] = (ibtype,[])
+
+            self.nbvv[k] = {'ibtype':ibtype,'bnodes':[]}
+            if (ibtype in [4, 24]):
+                self.nbvv[k]['ibconn']    = [] # back face node paired with the front face node
+                self.nbvv[k]['barinht']   = [] # internal barrier height
+                self.nbvv[k]['barincfsb'] = [] # coefficient of free surface subcritical flow at internal barrier node
+                self.nbvv[k]['barincfsp'] = [] # coefficient of free surface supercritical flow at external barrier node
+
             for j in range(nvell):
                 line = fort14.readline()
-                self.nbvv[k][1].append(int(line.split()[0]))
+                self.nbvv[k]['bnodes'].append(int(line.split()[0]))
+                if (ibtype in [4, 24]):
+                    self.nbvv[k]['ibconn'].append(int(line.split()[1]))
+                    self.nbvv[k]['barinht'].append(float(line.split()[2]))
+                    self.nbvv[k]['barincfsb'].append(float(line.split()[3]))
+                    self.nbvv[k]['barincfsp'].append(float(line.split()[4]))
+                elif (ibtype in [5,25]):
+                    self.nbvv[k]['ibconn'].append(int(line.split()[1]))
+                    self.nbvv[k]['barinht'].append(float(line.split()[2]))
+                    self.nbvv[k]['barincfsb'].append(float(line.split()[3]))
+                    self.nbvv[k]['barincfsp'].append(float(line.split()[4]))
+                    self.nbvv[k]['pipeht'].append(float(line.split()[5]))
+                    self.nbvv[k]['pipecoef'].append(float(line.split()[6]))
+                    self.nbvv[k]['pipediam'].append(float(line.split()[7]))
 
         fort14.close()
 

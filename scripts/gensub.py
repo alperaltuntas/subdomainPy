@@ -177,26 +177,30 @@ def orderBoundaryNodes(sub):
 
     if len(sub.nbdvSet)>0:
         raise SystemExit("\nERROR: Subdomain grid generation is unsuccesful. "
-                         "The likely cause is that there are disconnected segments "
-                         "of the subdomain grid. Try reducing the size and/or altering the location "
+                         "It is likely that there are disconnected (multiple) segments "
+                         "of the subdomain grid. Try increasing/reducing the size and/or altering the location "
                          "of the subdomain, so it covers an undivided portion of the fulldomain grid.")
 
     # Set the number of boundary nodes:
     sub.neta = len(sub.nbdv) 
 
-# add the island domains completely falling within the subdomain to the subdomain grid
-def processIslands(full,sub):
+# determine the island domains completely falling within the subdomain
+def processInternalBoundaries(full,sub):
 
-    sub.nbou = 0  # no. of normal flow (discharge) specified bdry segments (island only for subdomains)
-    sub.nvel = 0 # total no. of normal flow specified bdry nodes. (island only for subdomains)
-    sub.nbvv = [] # ibtype and node numbers on normal flow boundary segment k. (island only for subdomains)
+    sub.nbou = 0  # no. of normal flow (discharge) specified bdry segments
+    sub.nvel = 0 # total no. of normal flow specified bdry nodes.
+    sub.nbvv = [] # ibtype and node numbers on normal flow boundary segment k
 
-    # first determine the islands fully falling within the subdomain grid:
+    # internal ibtypes allowed within subdomains
+    allowed_ibtypes = [ 1,11,21,  # islands
+                        4,24,     # levees
+                        5,25 ]    # levees with cross-barrier pipes
+
     for k in range(full.nbou): # loop over full domain normal flow (discharge) specified bdry segments
-        ibtype = full.nbvv[k][0]
-        if ibtype==1: # island boundary segment
+        ibtype = full.nbvv[k]['ibtype']
+        if ibtype in allowed_ibtypes:
             withinSubdomain = True
-            for bnode in full.nbvv[k][1]:
+            for bnode in full.nbvv[k]['bnodes']:
                 if (bnode in sub.fullToSubNode and not (sub.fullToSubNode[bnode] in sub.nbdv ) ):
                     continue
                 else:
@@ -204,10 +208,27 @@ def processIslands(full,sub):
                     break;
             if withinSubdomain:
                 sub.nbou = sub.nbou +1
-                sub.nbvv.append([1,[]])
-                for bnode in full.nbvv[k][1]:
+                sub.nbvv.append({'ibtype':ibtype,'bnodes':[]})
+                if (ibtype in [4, 24,5,25]):
+                    sub.nbvv[-1]['ibconn']=[]
+                nvell = len(full.nbvv[k]['bnodes'])
+                for j in range(nvell):
+                    bnode = full.nbvv[k]['bnodes'][j]
                     sub.nvel = sub.nvel+1
-                    sub.nbvv[-1][1].append(sub.fullToSubNode[bnode])
+                    sub.nbvv[-1]['bnodes'].append(sub.fullToSubNode[bnode])
+                    if (ibtype in [4, 24,5,25]):
+                        sub.nbvv[-1]['ibconn'].append(sub.fullToSubNode[full.nbvv[k]['ibconn'][j]])
+                if (ibtype in [4, 24]):
+                    sub.nbvv[-1]['barinht'] = full.nbvv[k]['barinht']
+                    sub.nbvv[-1]['barincfsb'] = full.nbvv[k]['barincfsb']
+                    sub.nbvv[-1]['barincfsp'] = full.nbvv[k]['barincfsp']
+                if (ibtype in [5, 25]):
+                    sub.nbvv[-1]['barinht']   = full.nbvv[k]['barinht']
+                    sub.nbvv[-1]['barincfsb'] = full.nbvv[k]['barincfsb']
+                    sub.nbvv[-1]['barincfsp'] = full.nbvv[k]['barincfsp']
+                    sub.nbvv[-1]['pipeht']    = full.nbvv[k]['pipeht']
+                    sub.nbvv[-1]['pipecoef']  = full.nbvv[k]['pipecoef']
+                    sub.nbvv[-1]['pipediam']  = full.nbvv[k]['pipediam']
 
 def writeFort14(full,sub):
     print "\t Writing fort.14 at",sub.dir
@@ -240,15 +261,39 @@ def writeFort14(full,sub):
         fort14.write(str(bn)+"\n")
     fort14.write(str(sub.nbdv[0])+"\n")
 
-    # Island Boundaries within the subdomain
-    processIslands(full,sub)
+    # Internal boundaries within the subdomain
+    processInternalBoundaries(full,sub)
     fort14.write(str(sub.nbou)+"\t!no. of land boundary segments\n")
     fort14.write(str(sub.nvel)+"\t!no. of land boundary nodes\n")
     for k in range(sub.nbou):
-        nvell = len(sub.nbvv[k][1]) #  no. of nodes in normal flow specified bdry segment k
-        fort14.write(str(nvell)+" 1 \n")
-        for i in range(nvell):
-          fort14.write(str(sub.nbvv[k][1][i])+"\n")
+
+        nvell = len(sub.nbvv[k]['bnodes']) #  no. of nodes in normal flow specified bdry segment k
+        ibtype = sub.nbvv[k]['ibtype']
+        fort14.write(str(nvell)+" "+str(ibtype)+"\n")
+
+        if ibtype in [1,11,21]:
+            for i in range(nvell):
+                fort14.write(str(sub.nbvv[k]['bnodes'][i])+"\n")
+        elif ibtype in [4,24]:
+            for i in range(nvell):
+                fort14.write(str(sub.nbvv[k]['bnodes'][i])+" "+\
+                             str(sub.nbvv[k]['ibconn'][i])+" "+\
+                             str(sub.nbvv[k]['barinht'][i])+" "+\
+                             str(sub.nbvv[k]['barincfsb'][i])+" "+\
+                             str(sub.nbvv[k]['barincfsp'][i])+"\n")
+        elif ibtype in [5,25]:
+            for i in range(nvell):
+                fort14.write(str(sub.nbvv[k]['bnodes'][i])+" "+\
+                             str(sub.nbvv[k]['ibconn'][i])+" "+\
+                             str(sub.nbvv[k]['barinht'][i])+" "+\
+                             str(sub.nbvv[k]['barincfsb'][i])+" "+\
+                             str(sub.nbvv[k]['barincfsp'][i])+" "+\
+                             str(sub.nbvv[k]['pipeht'][i])+" "+\
+                             str(sub.nbvv[k]['pipecoef'][i])+" "+\
+                             str(sub.nbvv[k]['pipediam'][i])+"\n")
+        else:
+            raise SystemExit("ERROR: unknown ibtype is attempted to be written to sub fort.14")
+
 
     fort14.close()
        
